@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>MHマップ表示</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    :root { --gap: 6px; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    h1 { text-align: center; padding: 6px; margin: 0; font-size: 1.2em; }
+    .filters {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      padding: 6px; gap: var(--gap);
+    }
+    .filters label { display: flex; gap: 6px; align-items: center; }
+    #map { height: 90vh; width: 100%; }
+
+    /* Modal */
+    .modal {
+      position: fixed; z-index: 1000; inset: 0;
+      height: 100%; width: 100%;
+      overflow: auto; background-color: rgba(0,0,0,0.4);
+      display: none;
+    }
+    .modal-content {
+      background-color: #fff; margin: 5% auto; padding: 20px;
+      border-radius: 10px; width: 90%; max-width: 640px; color: #222;
+    }
+    .close { float: right; font-size: 1.5em; cursor: pointer; }
+
+    /* パス入力 */
+    #passwordPrompt { text-align: center; margin-top: 100px; }
+    #errorMessage { color: #c00; margin-top: 10px; }
+  </style>
+
+  <!-- Firebase SDK（v9+ 互換API） -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <!-- パスワード入力画面 -->
+  <div id="passwordPrompt">
+    <h2>パスワードを入力してください</h2>
+    <input type="password" id="passwordInput" placeholder="パスワード" />
+    <button id="passwordOk">OK</button>
+    <div id="errorMessage"></div>
+  </div>
+
+  <!-- 本体：パスワード通過後に表示 -->
+  <div id="mainContent" style="display:none;">
+    <h1>MH位置マップ</h1>
+    <div class="filters">
+      <label>収容局：
+        <select id="stationFilter">
+          <option value="">すべて</option>
+        </select>
+      </label>
+      <label>ケーブル名：
+        <select id="cableFilter">
+          <option value="">すべて</option>
+        </select>
+      </label>
+      <label>分岐：
+        <select id="branchFilter">
+          <option value="">すべて</option>
+        </select>
+      </label>
+    </div>
+    <div id="map"></div>
+
+    <!-- モーダル -->
+    <div id="mhModal" class="modal">
+      <div class="modal-content">
+        <span id="closeModal" class="close" title="閉じる">&times;</span>
+        <h2 id="modalTitle">MH詳細</h2>
+
+        <label>MHサイズ：
+          <select id="mhSize">
+            <option value="">未選択</option>
+            <option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option>
+            <option value="5">5</option><option value="6">6</option>
+            <option value="7">7</option><option value="8">8</option>
+          </select>
+        </label><br />
+
+        <label>クロージャ種類：
+          <select id="closureType">
+            <option value="">未選択</option>
+            <option value="鉛管">鉛管</option>
+            <option value="4SC">4SC</option>
+            <option value="SAT">SAT</option>
+            <option value="その他">その他</option>
+          </select>
+        </label><br />
+
+        <label>内圧:</label>
+        <div id="pressureList"></div>
+        <input type="date" id="pressureDate" />
+        <input type="number" id="pressureValue" step="0.01" placeholder="圧力" />
+        <button id="pressureAdd">追加</button>
+        <br /><br />
+
+        <label>故障歴:</label>
+        <div id="failureList"></div>
+        <input type="date" id="failureDate" />
+        <select id="failureStatus">
+          <option value="">未選択</option>
+          <option value="故障中">故障中</option>
+          <option value="修理済み">修理済み</option>
+          <option value="TOSYS提案中">TOSYS提案中</option>
+        </select>
+        <input type="text" id="failureComment" placeholder="コメント" />
+        <button id="failureAdd">追加</button>
+        <br /><br />
+
+        <button id="saveBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ライブラリ（Leaflet / PapaParse） -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <!-- アプリ本体 -->
+  <script src="./mh_map.js"></script>
+
+  <!-- パスワード認証：通過後に初期化 -->
+  <script>
+    (function () {
+      const okBtn = document.getElementById('passwordOk');
+      okBtn.addEventListener('click', function checkPassword() {
+        const input = document.getElementById('passwordInput').value;
+        if (input === '0036') {
+          document.getElementById('passwordPrompt').style.display = 'none';
+          document.getElementById('mainContent').style.display = 'block';
+
+          // 初期化（mh_map.js で window.initApp を公開）
+          if (typeof window.initApp === 'function') {
+            window.initApp();
+          }
+
+          // Leafletのリサイズ
+          setTimeout(() => {
+            if (window._leafletMap) window._leafletMap.invalidateSize();
+          }, 200);
+        } else {
+          document.getElementById('errorMessage').textContent = 'パスワードが違います';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
