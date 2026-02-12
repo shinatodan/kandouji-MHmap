@@ -82,18 +82,24 @@ window.initApp = function initApp() {
   getEl("branchFilter").addEventListener("change", updateMap);
 
   // CSV読み込み
-  Papa.parse('./mh_data.csv', {
-    download: true,
-    header: true,
-    complete: (results) => { /* ... */ },
-    error: (err) => { console.error('CSV 読み込み失敗:', err); }
-  });
+// CSV読み込み
+Papa.parse('./mh_data.csv', {
+  download: true,
+  header: true,
+  skipEmptyLines: true,
+  complete: (results) => {
+    _mhData = results.data || [];
+    console.log("CSV loaded rows:", _mhData.length);
 
-    error: function (err) {
-      console.error("CSV 読み込み失敗:", err);
-      alert("データの読み込みに失敗しました。");
-    }
-  });
+    populateFilters();
+    updateMap();
+  },
+  error: (err) => {
+    console.error("CSV 読み込み失敗:", err);
+    alert("データの読み込みに失敗しました。");
+  }
+});
+
 };
 
 // =========================
