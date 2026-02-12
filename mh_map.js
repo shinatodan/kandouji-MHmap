@@ -82,14 +82,13 @@ window.initApp = function initApp() {
   getEl("branchFilter").addEventListener("change", updateMap);
 
   // CSV読み込み
-  Papa.parse("https://shinatodan.github.io/MHmap/mh_data.csv", {
+  Papa.parse('./mh_data.csv', {
     download: true,
     header: true,
-    complete: function (results) {
-      _mhData = (results.data || []).filter(row => Object.keys(row).length > 0);
+    complete: (results) => { /* ... */ },
+    error: (err) => { console.error('CSV 読み込み失敗:', err); }
+  });
 
-      populateFilters();
-    },
     error: function (err) {
       console.error("CSV 読み込み失敗:", err);
       alert("データの読み込みに失敗しました。");
