@@ -38,8 +38,25 @@ function iconUrl(hasFailure) {
     : "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
 }
 
+function normalizeText(s) {
+  return (s ?? "").toString().trim().toLowerCase();
+}
+
+// HTML属性用の簡易エスケープ
+function escapeForAttr(text) {
+  return String(text).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// HTML表示用エスケープ
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 // =========================
-// 初期化本体（パス通過後に呼ぶ）
+// 初期化本体
 // =========================
 window.initApp = function initApp() {
   if (_initialized) return;
@@ -49,9 +66,11 @@ window.initApp = function initApp() {
   const modal = getEl("mhModal");
   const closeModalBtn = getEl("closeModal");
   closeModalBtn.onclick = () => modal.style.display = "none";
-  window.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+  window.addEventListener("click", (e) => {
+    if (e.target === modal) modal.style.display = "none";
+  });
 
-  // 地図生成（可視状態で作る）
+  // 地図生成
   _map = L.map("map").setView([37.9, 139.06], 13);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors",
@@ -66,31 +85,32 @@ window.initApp = function initApp() {
   // フィルタ変更イベント
   getEl("stationFilter").addEventListener("change", () => {
     updateCableFilter();
+    updateNameOptions();
     updateMap();
   });
   getEl("cableFilter").addEventListener("change", () => {
+    updateNameOptions();
     updateMap();
   });
+  getEl("nameFilter").addEventListener("input", updateMap);
 
   // CSV読み込み
-// CSV読み込み
-Papa.parse('./mh_data.csv', {
-  download: true,
-  header: true,
-  skipEmptyLines: true,
-  complete: (results) => {
-    _mhData = results.data || [];
-    console.log("CSV loaded rows:", _mhData.length);
+  Papa.parse("./mh_data.csv", {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      _mhData = results.data || [];
+      console.log("CSV loaded rows:", _mhData.length);
 
-    populateFilters();
-    updateMap();
-  },
-  error: (err) => {
-    console.error("CSV 読み込み失敗:", err);
-    alert("データの読み込みに失敗しました。");
-  }
-});
-
+      populateFilters();
+      updateMap();
+    },
+    error: (err) => {
+      console.error("CSV 読み込み失敗:", err);
+      alert("データの読み込みに失敗しました。");
+    },
+  });
 };
 
 // =========================
@@ -99,12 +119,19 @@ Papa.parse('./mh_data.csv', {
 function populateFilters() {
   const stationSelect = getEl("stationFilter");
   const stationSet = new Set();
-  _mhData.forEach(item => { if (item["収容局"]) stationSet.add(item["収容局"]); });
 
-  stationSelect.innerHTML = `<option value="">すべて</option>` +
-    [...stationSet].map(s => `<option>${s}</option>`).join("");
+  _mhData.forEach((item) => {
+    if (item["収容局"]) stationSet.add(item["収容局"]);
+  });
+
+  stationSelect.innerHTML =
+    `<option value="">すべて</option>` +
+    [...stationSet].sort((a, b) => a.localeCompare(b, "ja"))
+      .map((s) => `<option>${s}</option>`)
+      .join("");
 
   updateCableFilter();
+  updateNameOptions();
 }
 
 function updateCableFilter() {
@@ -112,14 +139,42 @@ function updateCableFilter() {
   const cableSelect = getEl("cableFilter");
   const cableSet = new Set();
 
-  _mhData.forEach(row => {
+  _mhData.forEach((row) => {
     if (!selectedStation || row["収容局"] === selectedStation) {
       if (row["ケーブル名"]) cableSet.add(row["ケーブル名"]);
     }
   });
 
-  cableSelect.innerHTML = `<option value="">すべて</option>` +
-    [...cableSet].map(c => `<option>${c}</option>`).join("");
+  cableSelect.innerHTML =
+    `<option value="">すべて</option>` +
+    [...cableSet].sort((a, b) => a.localeCompare(b, "ja"))
+      .map((c) => `<option>${c}</option>`)
+      .join("");
+}
+
+function updateNameOptions() {
+  const selectedStation = getEl("stationFilter").value;
+  const selectedCable = getEl("cableFilter").value;
+
+  const dl = getEl("nameOptions");
+  if (!dl) return;
+
+  const nameSet = new Set();
+
+  _mhData.forEach((row) => {
+    if (
+      (!selectedStation || row["収容局"] === selectedStation) &&
+      (!selectedCable || row["ケーブル名"] === selectedCable)
+    ) {
+      const name = (row["備考"] || "").trim();
+      if (name) nameSet.add(name);
+    }
+  });
+
+  dl.innerHTML = [...nameSet]
+    .sort((a, b) => a.localeCompare(b, "ja"))
+    .map((n) => `<option value="${escapeForAttr(n)}"></option>`)
+    .join("");
 }
 
 // =========================
@@ -127,86 +182,95 @@ function updateCableFilter() {
 // =========================
 function updateMap() {
   // 古いマーカーを削除
-  _markers.forEach(m => _map.removeLayer(m));
+  _markers.forEach((m) => _map.removeLayer(m));
   _markers = [];
 
   const selectedStation = getEl("stationFilter").value;
   const selectedCable = getEl("cableFilter").value;
+  const nameQuery = normalizeText(getEl("nameFilter")?.value);
 
-  const filtered = _mhData.filter(row =>
-    (!selectedStation || row["収容局"] === selectedStation) &&
-    (!selectedCable || row["ケーブル名"] === selectedCable)
-  );
+  const filtered = _mhData.filter((row) => {
+    const okStation = !selectedStation || row["収容局"] === selectedStation;
+    const okCable = !selectedCable || row["ケーブル名"] === selectedCable;
 
-  filtered.forEach(row => {
+    // 備考（名称）で部分一致
+    const name = normalizeText(row["備考"]);
+    const okName = !nameQuery || name.includes(nameQuery);
+
+    return okStation && okCable && okName;
+  });
+
+  filtered.forEach((row) => {
     const lat = parseFloat(row["緯度"]);
     const lng = parseFloat(row["経度"]);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      const mhName = (row["備考"] || "").trim();
-      const popupHtml = `
-        <div style="line-height:1.4">
-          <div style="font-weight:bold; font-size:1.1em;">${mhName || "(名称未設定)"}</div>
-          <div style="font-size:1.0em;">${row["収容局"] || ""}</div>
-          <div>
-            ${row["pdfファイル名"] ? `<a href="MHpdf/${row["pdfファイル名"]}" target="_blank">${row["ケーブル名"] || "詳細PDF"}</a>` : (row["ケーブル名"] || "")}
-          </div>
-          <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank">地図アプリで開く</a><br>
-          <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}" target="_blank">ストリートビューで開く</a><br><br>
-          <button onclick="openModal('${escapeForAttr(mhName)}')">詳細</button>
-        </div>
-      `;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      // mhName が空のときは Firestore の参照をスキップして青アイコン固定
-      if (!mhName) {
-        const marker = L.marker([lat, lng], {
-          icon: L.icon({
-            iconUrl: iconUrl(false),
-            iconSize: [32, 32],
-            iconAnchor: [16, 32],
-            popupAnchor: [0, -32],
-          }),
-        }).addTo(_map).bindPopup(popupHtml);
-        _markers.push(marker);
-        return;
+    const mhName = (row["備考"] || "").trim();
+    const popupHtml = `
+      <div style="line-height:1.4">
+        <div style="font-weight:bold; font-size:1.1em;">${escapeHtml(mhName || "(名称未設定)")}</div>
+        <div style="font-size:1.0em;">${escapeHtml(row["収容局"] || "")}</div>
+        <div>
+          ${
+            row["pdfファイル名"]
+              ? `<a href="MHpdf/${encodeURIComponent(row["pdfファイル名"])}" target="_blank">${escapeHtml(row["ケーブル名"] || "詳細PDF")}</a>`
+              : escapeHtml(row["ケーブル名"] || "")
+          }
+        </div>
+        <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank">地図アプリで開く</a><br>
+        <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}" target="_blank">ストリートビューで開く</a><br><br>
+        <button onclick="openModal('${escapeForAttr(mhName)}')">詳細</button>
+      </div>
+    `;
+
+    // mhName が空のときは Firestore の参照をスキップして青アイコン固定
+    if (!mhName) {
+      const marker = L.marker([lat, lng], {
+        icon: L.icon({
+          iconUrl: iconUrl(false),
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+          popupAnchor: [0, -32],
+        }),
+      }).addTo(_map).bindPopup(popupHtml);
+
+      _markers.push(marker);
+      return;
+    }
+
+    // Firestoreから故障有無を見てアイコン色分け
+    db.collection("mhDetails").doc(mhName).get().then((doc) => {
+      let hasFailure = false;
+      if (doc.exists) {
+        const data = doc.data() || {};
+        hasFailure = data.failures && Object.keys(data.failures).length > 0;
       }
 
-      // Firestoreから故障有無を見てアイコン色分け
-      db.collection("mhDetails").doc(mhName).get().then(doc => {
-        let hasFailure = false;
-        if (doc.exists) {
-          const data = doc.data() || {};
-          hasFailure = data.failures && Object.keys(data.failures).length > 0;
-        }
+      const marker = L.marker([lat, lng], {
+        icon: L.icon({
+          iconUrl: iconUrl(hasFailure),
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+          popupAnchor: [0, -32],
+        }),
+      }).addTo(_map).bindPopup(popupHtml);
 
-        const marker = L.marker([lat, lng], {
-          icon: L.icon({
-            iconUrl: iconUrl(hasFailure),
-            iconSize: [32, 32],
-            iconAnchor: [16, 32],
-            popupAnchor: [0, -32],
-          }),
-        }).addTo(_map).bindPopup(popupHtml);
+      _markers.push(marker);
+    }).catch((err) => {
+      console.warn("Firestore 取得失敗:", err);
 
-        _markers.push(marker);
-      }).catch(err => {
-        console.warn("Firestore 取得失敗:", err);
-        const marker = L.marker([lat, lng], {
-          icon: L.icon({
-            iconUrl: iconUrl(false),
-            iconSize: [32, 32],
-            iconAnchor: [16, 32],
-            popupAnchor: [0, -32],
-          }),
-        }).addTo(_map).bindPopup(popupHtml);
-        _markers.push(marker);
-      });
-    }
+      const marker = L.marker([lat, lng], {
+        icon: L.icon({
+          iconUrl: iconUrl(false),
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+          popupAnchor: [0, -32],
+        }),
+      }).addTo(_map).bindPopup(popupHtml);
+
+      _markers.push(marker);
+    });
   });
-}
-
-// HTML属性用の簡易エスケープ
-function escapeForAttr(text) {
-  return String(text).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // =========================
@@ -271,8 +335,8 @@ function appendPressureItem(date, val) {
   div.dataset.date = date;
   div.dataset.value = val;
   div.innerHTML = `
-    ${date}: ${val}
-    <button class="delete-pressure" data-date="${date}">削除</button>
+    ${escapeHtml(date)}: ${escapeHtml(val)}
+    <button class="delete-pressure" data-date="${escapeForAttr(date)}">削除</button>
   `;
   div.querySelector(".delete-pressure").onclick = () => {
     if (confirm("この項目を削除しますか？")) div.remove();
@@ -294,21 +358,13 @@ function appendFailureItem(date, status, comment) {
   div.dataset.status = status;
   div.dataset.comment = comment;
   div.innerHTML = `
-    ${date}: [${status}] ${comment ? escapeHtml(comment) : ""}
-    <button class="delete-failure" data-date="${date}">削除</button>
+    ${escapeHtml(date)}: [${escapeHtml(status)}] ${comment ? escapeHtml(comment) : ""}
+    <button class="delete-failure" data-date="${escapeForAttr(date)}">削除</button>
   `;
   div.querySelector(".delete-failure").onclick = () => {
     if (confirm("この項目を削除しますか？")) div.remove();
   };
   list.appendChild(div);
-}
-
-// HTML表示用エスケープ
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 function saveMHDetail() {
