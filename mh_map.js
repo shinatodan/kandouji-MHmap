@@ -95,7 +95,7 @@ window.initApp = function initApp() {
 
     // ピンを消して初期状態へ
     clearMarkers();
-    setHint("収容局を選択するとピンを表示します（初期は表示しません）");
+    setHint("収容局を選択するとピンを表示します");
   });
 
   // フィルタ変更イベント
@@ -111,7 +111,7 @@ window.initApp = function initApp() {
       getEl("nameFilter").disabled = true;
 
       clearMarkers();
-      setHint("収容局を選択するとピンを表示します（初期は表示しません）");
+      setHint("収容局を選択するとピンを表示します");
       return;
     }
 
@@ -147,7 +147,7 @@ window.initApp = function initApp() {
       console.log("CSV loaded rows:", _mhData.length);
 
       populateStationFilter();
-      setHint("収容局を選択するとピンを表示します（初期は表示しません）");
+      setHint("収容局を選択するとピンを表示します");
       // ★ここでは updateMap() を呼ばない（初期ピン描画しない）
     },
     error: (err) => {
