@@ -21,7 +21,6 @@ let _markers = [];
 let _mhData = [];
 let _currentMHId = null;
 
-// Leafletインスタンスを他スクリプトでも触れるように（任意）
 Object.defineProperty(window, "_leafletMap", {
   get: () => _map,
   configurable: false,
@@ -42,17 +41,20 @@ function normalizeText(s) {
   return (s ?? "").toString().trim().toLowerCase();
 }
 
-// HTML属性用の簡易エスケープ
 function escapeForAttr(text) {
   return String(text).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// HTML表示用エスケープ
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function setHint(text) {
+  const el = getEl("hint");
+  if (el) el.textContent = text;
 }
 
 // =========================
@@ -70,7 +72,7 @@ window.initApp = function initApp() {
     if (e.target === modal) modal.style.display = "none";
   });
 
-  // 地図生成
+  // 地図生成（ピンは初期表示しない）
   _map = L.map("map").setView([37.9, 139.06], 13);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors",
@@ -82,17 +84,58 @@ window.initApp = function initApp() {
   getEl("failureAdd").addEventListener("click", addFailure);
   getEl("saveBtn").addEventListener("click", saveMHDetail);
 
+  // クリア
+  getEl("clearBtn").addEventListener("click", () => {
+    getEl("stationFilter").value = "";
+    getEl("cableFilter").innerHTML = `<option value="">収容局を選択</option>`;
+    getEl("cableFilter").disabled = true;
+
+    getEl("nameFilter").value = "";
+    getEl("nameFilter").disabled = true;
+
+    // ピンを消して初期状態へ
+    clearMarkers();
+    setHint("収容局を選択するとピンを表示します（初期は表示しません）");
+  });
+
   // フィルタ変更イベント
   getEl("stationFilter").addEventListener("change", () => {
+    const station = getEl("stationFilter").value;
+
+    // station未選択なら描画しない
+    if (!station) {
+      getEl("cableFilter").innerHTML = `<option value="">収容局を選択</option>`;
+      getEl("cableFilter").disabled = true;
+
+      getEl("nameFilter").value = "";
+      getEl("nameFilter").disabled = true;
+
+      clearMarkers();
+      setHint("収容局を選択するとピンを表示します（初期は表示しません）");
+      return;
+    }
+
+    // station選択されたらケーブル/名称を有効化して更新
+    getEl("cableFilter").disabled = false;
+    getEl("nameFilter").disabled = false;
+
     updateCableFilter();
     updateNameOptions();
     updateMap();
   });
+
   getEl("cableFilter").addEventListener("change", () => {
+    const station = getEl("stationFilter").value;
+    if (!station) return; // 念のため
     updateNameOptions();
     updateMap();
   });
-  getEl("nameFilter").addEventListener("input", updateMap);
+
+  getEl("nameFilter").addEventListener("input", () => {
+    const station = getEl("stationFilter").value;
+    if (!station) return; // 念のため
+    updateMap();
+  });
 
   // CSV読み込み
   Papa.parse("./mh_data.csv", {
@@ -103,8 +146,9 @@ window.initApp = function initApp() {
       _mhData = results.data || [];
       console.log("CSV loaded rows:", _mhData.length);
 
-      populateFilters();
-      updateMap();
+      populateStationFilter();
+      setHint("収容局を選択するとピンを表示します（初期は表示しません）");
+      // ★ここでは updateMap() を呼ばない（初期ピン描画しない）
     },
     error: (err) => {
       console.error("CSV 読み込み失敗:", err);
@@ -116,7 +160,7 @@ window.initApp = function initApp() {
 // =========================
 // フィルタ構築
 // =========================
-function populateFilters() {
+function populateStationFilter() {
   const stationSelect = getEl("stationFilter");
   const stationSet = new Set();
 
@@ -125,13 +169,11 @@ function populateFilters() {
   });
 
   stationSelect.innerHTML =
-    `<option value="">すべて</option>` +
-    [...stationSet].sort((a, b) => a.localeCompare(b, "ja"))
+    `<option value="">選択してください</option>` +
+    [...stationSet]
+      .sort((a, b) => a.localeCompare(b, "ja"))
       .map((s) => `<option>${s}</option>`)
       .join("");
-
-  updateCableFilter();
-  updateNameOptions();
 }
 
 function updateCableFilter() {
@@ -140,14 +182,15 @@ function updateCableFilter() {
   const cableSet = new Set();
 
   _mhData.forEach((row) => {
-    if (!selectedStation || row["収容局"] === selectedStation) {
+    if (row["収容局"] === selectedStation) {
       if (row["ケーブル名"]) cableSet.add(row["ケーブル名"]);
     }
   });
 
   cableSelect.innerHTML =
     `<option value="">すべて</option>` +
-    [...cableSet].sort((a, b) => a.localeCompare(b, "ja"))
+    [...cableSet]
+      .sort((a, b) => a.localeCompare(b, "ja"))
       .map((c) => `<option>${c}</option>`)
       .join("");
 }
@@ -155,15 +198,13 @@ function updateCableFilter() {
 function updateNameOptions() {
   const selectedStation = getEl("stationFilter").value;
   const selectedCable = getEl("cableFilter").value;
-
   const dl = getEl("nameOptions");
   if (!dl) return;
 
   const nameSet = new Set();
-
   _mhData.forEach((row) => {
     if (
-      (!selectedStation || row["収容局"] === selectedStation) &&
+      row["収容局"] === selectedStation &&
       (!selectedCable || row["ケーブル名"] === selectedCable)
     ) {
       const name = (row["備考"] || "").trim();
@@ -178,27 +219,37 @@ function updateNameOptions() {
 }
 
 // =========================
-// 地図描画
+// 地図描画（収容局が未選択なら描画しない）
 // =========================
-function updateMap() {
-  // 古いマーカーを削除
+function clearMarkers() {
   _markers.forEach((m) => _map.removeLayer(m));
   _markers = [];
+}
 
+function updateMap() {
   const selectedStation = getEl("stationFilter").value;
+  if (!selectedStation) {
+    clearMarkers();
+    return;
+  }
+
+  clearMarkers();
+
   const selectedCable = getEl("cableFilter").value;
   const nameQuery = normalizeText(getEl("nameFilter")?.value);
 
   const filtered = _mhData.filter((row) => {
-    const okStation = !selectedStation || row["収容局"] === selectedStation;
+    if (row["収容局"] !== selectedStation) return false;
+
     const okCable = !selectedCable || row["ケーブル名"] === selectedCable;
 
-    // 備考（名称）で部分一致
     const name = normalizeText(row["備考"]);
     const okName = !nameQuery || name.includes(nameQuery);
 
-    return okStation && okCable && okName;
+    return okCable && okName;
   });
+
+  setHint(`表示件数：${filtered.length}（収容局を変更/ケーブル/名称で絞り込み）`);
 
   filtered.forEach((row) => {
     const lat = parseFloat(row["緯度"]);
@@ -238,7 +289,6 @@ function updateMap() {
       return;
     }
 
-    // Firestoreから故障有無を見てアイコン色分け
     db.collection("mhDetails").doc(mhName).get().then((doc) => {
       let hasFailure = false;
       if (doc.exists) {
@@ -293,7 +343,7 @@ window.openModal = function openModal(mhName) {
 
   const modal = getEl("mhModal");
 
-  if (!mhName) { // 名前が無い場合は編集不可に
+  if (!mhName) {
     modal.style.display = "block";
     return;
   }
@@ -375,7 +425,6 @@ function saveMHDetail() {
   const size = getEl("mhSize").value;
   const closure = getEl("closureType").value;
 
-  // data属性から安全に収集
   const pressure = {};
   [...getEl("pressureList").children].forEach(item => {
     const date = item.dataset.date;
@@ -388,9 +437,7 @@ function saveMHDetail() {
     const date = item.dataset.date;
     const status = item.dataset.status;
     const comment = item.dataset.comment;
-    if (date && status != null) {
-      failures[date] = { status, comment };
-    }
+    if (date && status != null) failures[date] = { status, comment };
   });
 
   db.collection("mhDetails").doc(_currentMHId).set({
@@ -398,8 +445,7 @@ function saveMHDetail() {
   }).then(() => {
     alert("保存しました");
     getEl("mhModal").style.display = "none";
-    // 保存後の色分け反映のため再描画
-    updateMap();
+    updateMap(); // 色分け再描画
   }).catch(err => {
     console.error("保存失敗:", err);
     alert("保存に失敗しました");
