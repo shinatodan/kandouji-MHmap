@@ -33,9 +33,6 @@
     }
     .close { float: right; font-size: 1.5em; cursor: pointer; }
 
-    /* パス入力 */
-    #passwordPrompt { text-align: center; margin-top: 100px; }
-    #errorMessage { color: #c00; margin-top: 10px; }
   </style>
 
   <!-- Firebase SDK（v9+ 互換API） -->
@@ -43,16 +40,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
-  <!-- パスワード入力画面 -->
-  <div id="passwordPrompt">
-    <h2>パスワードを入力してください</h2>
-    <input type="password" id="passwordInput" placeholder="パスワード" />
-    <button id="passwordOk">OK</button>
-    <div id="errorMessage"></div>
-  </div>
-
-  <!-- 本体：パスワード通過後に表示 -->
-  <div id="mainContent" style="display:none;">
+  <!-- 本体 -->
+  <div id="mainContent">
     <h1>MH位置マップ</h1>
     <div class="filters">
       <label>収容局：
@@ -62,11 +51,6 @@
       </label>
       <label>ケーブル名：
         <select id="cableFilter">
-          <option value="">すべて</option>
-        </select>
-      </label>
-      <label>分岐：
-        <select id="branchFilter">
           <option value="">すべて</option>
         </select>
       </label>
@@ -131,30 +115,13 @@
   <!-- アプリ本体 -->
   <script src="./mh_map.js"></script>
 
-  <!-- パスワード認証：通過後に初期化 -->
+  <!-- 起動 -->
   <script>
-    (function () {
-      const okBtn = document.getElementById('passwordOk');
-      okBtn.addEventListener('click', function checkPassword() {
-        const input = document.getElementById('passwordInput').value;
-        if (input === '0036') {
-          document.getElementById('passwordPrompt').style.display = 'none';
-          document.getElementById('mainContent').style.display = 'block';
-
-          // 初期化（mh_map.js で window.initApp を公開）
-          if (typeof window.initApp === 'function') {
-            window.initApp();
-          }
-
-          // Leafletのリサイズ
-          setTimeout(() => {
-            if (window._leafletMap) window._leafletMap.invalidateSize();
-          }, 200);
-        } else {
-          document.getElementById('errorMessage').textContent = 'パスワードが違います';
-        }
-      });
-    })();
+    window.addEventListener("DOMContentLoaded", () => {
+      if (typeof window.initApp === "function") {
+        window.initApp();
+      }
+    });
   </script>
 </body>
 </html>

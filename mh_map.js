@@ -38,12 +38,6 @@ function iconUrl(hasFailure) {
     : "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
 }
 
-function getAvailableBranches(row) {
-  // CSVの列名に合わせて必要なら拡張
-  const keys = ["分岐00", "分岐01", "分岐02", "分岐03", "分岐04", "分岐05"];
-  return keys.filter(k => row[k] === "1");
-}
-
 // =========================
 // 初期化本体（パス通過後に呼ぶ）
 // =========================
@@ -72,14 +66,11 @@ window.initApp = function initApp() {
   // フィルタ変更イベント
   getEl("stationFilter").addEventListener("change", () => {
     updateCableFilter();
-    updateBranchFilter();
     updateMap();
   });
   getEl("cableFilter").addEventListener("change", () => {
-    updateBranchFilter();
     updateMap();
   });
-  getEl("branchFilter").addEventListener("change", updateMap);
 
   // CSV読み込み
 // CSV読み込み
@@ -114,7 +105,6 @@ function populateFilters() {
     [...stationSet].map(s => `<option>${s}</option>`).join("");
 
   updateCableFilter();
-  updateBranchFilter();
 }
 
 function updateCableFilter() {
@@ -132,25 +122,6 @@ function updateCableFilter() {
     [...cableSet].map(c => `<option>${c}</option>`).join("");
 }
 
-function updateBranchFilter() {
-  const selectedStation = getEl("stationFilter").value;
-  const selectedCable = getEl("cableFilter").value;
-  const branchSelect = getEl("branchFilter");
-  const branchSet = new Set();
-
-  _mhData.forEach(row => {
-    if (
-      (!selectedStation || row["収容局"] === selectedStation) &&
-      (!selectedCable || row["ケーブル名"] === selectedCable)
-    ) {
-      getAvailableBranches(row).forEach(b => branchSet.add(b));
-    }
-  });
-
-  branchSelect.innerHTML = `<option value="">すべて</option>` +
-    [...branchSet].map(b => `<option>${b}</option>`).join("");
-}
-
 // =========================
 // 地図描画
 // =========================
@@ -161,12 +132,10 @@ function updateMap() {
 
   const selectedStation = getEl("stationFilter").value;
   const selectedCable = getEl("cableFilter").value;
-  const selectedBranch = getEl("branchFilter").value;
 
   const filtered = _mhData.filter(row =>
     (!selectedStation || row["収容局"] === selectedStation) &&
-    (!selectedCable || row["ケーブル名"] === selectedCable) &&
-    (!selectedBranch || row[selectedBranch] === "1")
+    (!selectedCable || row["ケーブル名"] === selectedCable)
   );
 
   filtered.forEach(row => {
