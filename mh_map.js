@@ -249,7 +249,7 @@ function updateMap() {
     return okCable && okName;
   });
 
-  setHint(`表示件数：${filtered.length}（収容局を変更/ケーブル/名称で絞り込み）`);
+  setHint(`表示件数：${filtered.length}`);
 
   filtered.forEach((row) => {
     const lat = parseFloat(row["緯度"]);
