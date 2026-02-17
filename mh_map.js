@@ -4,7 +4,7 @@
 const firebaseConfig = {
   apiKey: "AIzaSyCi7BqLPC7hmVlPCqyFPSDYhaHjscqW_h0",
   authDomain: "mhmap-app.firebaseapp.com",
-  projectId: "mhmap-app", // ★ここが重要（firebaseapp.com は入れない）
+  projectId: "mhmap-app",
   storageBucket: "mhmap-app.firebasestorage.app",
   messagingSenderId: "253694025628",
   appId: "1:253694025628:web:627587ef135bacf80ff259",
@@ -79,10 +79,13 @@ function parseCableKey(key) {
   };
 }
 
-// ピン色：赤（ボンベ） > オレンジ（故障） > 青
+// =========================
+// ★ピン色の優先順位（重要）
+// オレンジ（故障） ＞ 赤（ボンベ） ＞ 青
+// =========================
 function iconUrl(hasFailure, hasCylinder) {
-  if (hasCylinder) return "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
   if (hasFailure) return "https://maps.google.com/mapfiles/ms/icons/orange-dot.png";
+  if (hasCylinder) return "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
   return "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
 }
 
@@ -115,13 +118,13 @@ function openCylinderPanel({ minimized = false } = {}) {
   else document.body.classList.remove("cylinder-min");
 
   updateCylinderToggleLabel();
-  requestAnimationFrame(() => _map.invalidateSize()); // ★白抜け対策強め
+  requestAnimationFrame(() => { try { _map.invalidateSize(); } catch (_) {} });
 }
 
 function toggleCylinderMinimize() {
   document.body.classList.toggle("cylinder-min");
   updateCylinderToggleLabel();
-  requestAnimationFrame(() => _map.invalidateSize());
+  requestAnimationFrame(() => { try { _map.invalidateSize(); } catch (_) {} });
 }
 
 function resetCylinderUi() {
@@ -130,7 +133,7 @@ function resetCylinderUi() {
   document.body.classList.remove("cylinder-open");
   document.body.classList.remove("cylinder-min");
   updateCylinderToggleLabel();
-  requestAnimationFrame(() => _map.invalidateSize());
+  requestAnimationFrame(() => { try { _map.invalidateSize(); } catch (_) {} });
 }
 
 // =========================
@@ -233,7 +236,7 @@ window.initApp = function initApp() {
     await fetchCylinderSet({ force: true });
     renderCylinderList();
     updateMap();
-    openCylinderPanel({ minimized: true }); // デフォルト閉じ
+    openCylinderPanel({ minimized: true });
   });
 
   getEl("cylinderClose").addEventListener("click", () => {
@@ -306,7 +309,7 @@ window.initApp = function initApp() {
       populateStationFilter();
       setHint("収容局を選択するとピンを表示します");
       updateCylinderToggleLabel();
-      requestAnimationFrame(() => _map.invalidateSize());
+      requestAnimationFrame(() => { try { _map.invalidateSize(); } catch (_) {} });
     },
     error: (err) => {
       console.error("CSV 読み込み失敗:", err);
@@ -403,33 +406,52 @@ function getUniqueCylinderTargetsFromCsv() {
 }
 
 function updateMap() {
-  // ボンベモード
+  // ===== ボンベモード：ボンベのある設備だけ表示（ただし故障があればオレンジ優先）=====
   if (_cylinderMode) {
     clearMarkers();
 
     const targets = getUniqueCylinderTargetsFromCsv();
+    setHint(`表示件数：${targets.length}（ボンベ設置のみ）`);
+
     targets.forEach(({ row, mhName, lat, lng, key }) => {
       const popupHtml = buildPopupHtml(row, lat, lng, mhName);
 
-      const marker = L.marker([lat, lng], {
-        icon: L.icon({
-          iconUrl: iconUrl(false, true),
-          iconSize: [32, 32],
-          iconAnchor: [16, 32],
-          popupAnchor: [0, -32],
-        }),
-      }).addTo(_map).bindPopup(popupHtml);
+      // ★ボンベモードでも故障色を判定するためFirestoreを見る
+      getDetail(key).then((data) => {
+        const hasFailure = data.failures && Object.keys(data.failures).length > 0;
+        const hasCylinder = true;
 
-      marker.__cableKey = key;
-      _markers.push(marker);
+        const marker = L.marker([lat, lng], {
+          icon: L.icon({
+            iconUrl: iconUrl(hasFailure, hasCylinder), // ★オレンジ優先
+            iconSize: [32, 32],
+            iconAnchor: [16, 32],
+            popupAnchor: [0, -32],
+          }),
+        }).addTo(_map).bindPopup(popupHtml);
+
+        marker.__cableKey = key;
+        _markers.push(marker);
+      }).catch(() => {
+        // Firestore取れない場合は赤
+        const marker = L.marker([lat, lng], {
+          icon: L.icon({
+            iconUrl: iconUrl(false, true),
+            iconSize: [32, 32],
+            iconAnchor: [16, 32],
+            popupAnchor: [0, -32],
+          }),
+        }).addTo(_map).bindPopup(popupHtml);
+
+        marker.__cableKey = key;
+        _markers.push(marker);
+      });
     });
 
-    setHint(`表示件数：${targets.length}（ボンベ設置のみ）`);
-    requestAnimationFrame(() => _map.invalidateSize());
     return;
   }
 
-  // 通常モード（収容局未選択なら描画しない）
+  // ===== 通常モード =====
   const selectedStation = getEl("stationFilter").value;
   if (!selectedStation) {
     clearMarkers();
@@ -469,7 +491,7 @@ function updateMap() {
 
       const marker = L.marker([lat, lng], {
         icon: L.icon({
-          iconUrl: iconUrl(hasFailure, hasCylinder),
+          iconUrl: iconUrl(hasFailure, hasCylinder), // ★オレンジ優先
           iconSize: [32, 32],
           iconAnchor: [16, 32],
           popupAnchor: [0, -32],
