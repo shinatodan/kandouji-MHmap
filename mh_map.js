@@ -2,7 +2,7 @@
 // Firebase 初期化（compat）
 // =========================
 const firebaseConfig = {
-  apiKey: "AIzaSyCi7BqLPC7hmVlPCqyFPSDYhaHjscqW_h0",
+  apiKey: "AIzaSyCi7BqLPC7hmVlPCyFPSDYhaHjscqW_h0",
   authDomain: "mhmap-app.firebaseapp.com",
   projectId: "mhmap-app",
   storageBucket: "mhmap-app.firebasestorage.app",
@@ -41,12 +41,8 @@ function getEl(id) { return document.getElementById(id); }
 
 // 既存のiconUrl(boolean)互換を維持しつつ拡張
 function iconUrl(arg1, hasCylinder = false) {
-  // 旧仕様：iconUrl(hasFailure:boolean)
   const hasFailure = !!arg1;
-
-  // 優先：ボンベ設置は赤
   if (hasCylinder) return "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
-  // 既存：故障があればオレンジ、なければ青
   return hasFailure
     ? "https://maps.google.com/mapfiles/ms/icons/orange-dot.png"
     : "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
@@ -72,27 +68,49 @@ function setHint(text) {
   if (el) el.textContent = text;
 }
 
+// 追加：ボンベパネルのボタン表示を更新（閉じる/開く）
+function updateCylinderToggleLabel() {
+  const btn = getEl("cylinderClose");
+  if (!btn) return;
+
+  const panel = getEl("cylinderPanel");
+  const isVisible = panel && panel.style.display !== "none" && panel.style.display !== "";
+  const isMin = document.body.classList.contains("cylinder-min");
+
+  // パネルが出ていない時は「開く」に寄せる（表示される状況は通常ないが保険）
+  if (!isVisible) {
+    btn.textContent = "開く";
+    return;
+  }
+
+  btn.textContent = isMin ? "開く" : "閉じる";
+}
+
 // 追加：一覧パネル表示制御（地図が隠れないように）
 function openCylinderPanel() {
-  getEl("cylinderPanel").style.display = "block";
+  const panel = getEl("cylinderPanel");
+  if (!panel) return;
+
+  panel.style.display = "block";
   document.body.classList.add("cylinder-open");
   document.body.classList.remove("cylinder-min");
-  // Leafletはコンテナサイズ変更に弱いので補正
+  updateCylinderToggleLabel();
+
   setTimeout(() => _map.invalidateSize(), 0);
 }
+
 function toggleCylinderMinimize() {
   document.body.classList.toggle("cylinder-min");
+  updateCylinderToggleLabel();
   setTimeout(() => _map.invalidateSize(), 0);
 }
-function closeCylinderPanelOnly() {
-  // 「閉じる＝最小化」要望に合わせる（モード解除はしない）
-  toggleCylinderMinimize();
-}
+
 function resetCylinderUi() {
-  // クリア時だけ、パネルも閉じて通常に戻す
-  getEl("cylinderPanel").style.display = "none";
+  const panel = getEl("cylinderPanel");
+  if (panel) panel.style.display = "none";
   document.body.classList.remove("cylinder-open");
   document.body.classList.remove("cylinder-min");
+  updateCylinderToggleLabel();
   setTimeout(() => _map.invalidateSize(), 0);
 }
 
@@ -174,12 +192,20 @@ window.initApp = function initApp() {
     openCylinderPanel();
     await fetchCylinderSet({ force: true });
     renderCylinderList();
-    updateMap(); // 既存機能は変えず、モード分岐だけ追加
+    updateMap(); // ボンベ設備全件表示
   });
 
-  // 追加：「閉じる」＝最小化トグル（クリアで十分なのでモード解除しない）
+  // 追加：「閉じる/開く」ボタン＝最小化トグル（表示名が切り替わる）
   getEl("cylinderClose").addEventListener("click", () => {
-    closeCylinderPanelOnly();
+    // パネルが出てない場合は開く（保険）
+    const panel = getEl("cylinderPanel");
+    const isVisible = panel && panel.style.display !== "none" && panel.style.display !== "";
+    if (!isVisible) {
+      openCylinderPanel();
+      renderCylinderList();
+      return;
+    }
+    toggleCylinderMinimize();
   });
 
   // クリア（既存の動作＋ボンベUIをリセット）
@@ -202,7 +228,6 @@ window.initApp = function initApp() {
 
   // フィルタ変更イベント（既存のまま。ただしボンベモードは解除して通常挙動へ）
   getEl("stationFilter").addEventListener("change", () => {
-    // 追加：通常操作したらボンベモード解除（既存挙動を優先）
     if (_cylinderMode) {
       _cylinderMode = false;
       resetCylinderUi();
@@ -210,7 +235,6 @@ window.initApp = function initApp() {
 
     const station = getEl("stationFilter").value;
 
-    // station未選択なら描画しない
     if (!station) {
       getEl("cableFilter").innerHTML = `<option value="">収容局を選択</option>`;
       getEl("cableFilter").disabled = true;
@@ -223,7 +247,6 @@ window.initApp = function initApp() {
       return;
     }
 
-    // station選択されたらケーブル/名称を有効化して更新
     getEl("cableFilter").disabled = false;
     getEl("nameFilter").disabled = false;
 
@@ -233,27 +256,25 @@ window.initApp = function initApp() {
   });
 
   getEl("cableFilter").addEventListener("change", () => {
-    // 追加：通常操作したらボンベモード解除
     if (_cylinderMode) {
       _cylinderMode = false;
       resetCylinderUi();
     }
 
     const station = getEl("stationFilter").value;
-    if (!station) return; // 念のため
+    if (!station) return;
     updateNameOptions();
     updateMap();
   });
 
   getEl("nameFilter").addEventListener("input", () => {
-    // 追加：通常操作したらボンベモード解除
     if (_cylinderMode) {
       _cylinderMode = false;
       resetCylinderUi();
     }
 
     const station = getEl("stationFilter").value;
-    if (!station) return; // 念のため
+    if (!station) return;
     updateMap();
   });
 
@@ -268,6 +289,7 @@ window.initApp = function initApp() {
 
       populateStationFilter();
       setHint("収容局を選択するとピンを表示します");
+      updateCylinderToggleLabel();
       // ★ここでは updateMap() を呼ばない（初期ピン描画しない）
     },
     error: (err) => {
@@ -351,7 +373,6 @@ function updateMap() {
   if (_cylinderMode) {
     clearMarkers();
 
-    // Setが空の可能性もあるので、無ければヒント更新して終了
     if (!_cylinderSet || _cylinderSet.size === 0) {
       setHint("表示件数：0（ボンベ設置のみ）");
       return;
@@ -359,6 +380,8 @@ function updateMap() {
 
     let count = 0;
 
+    // ★ここは「ボンベ設置されている設備すべてがピン表示」要件
+    // CSV上で座標を持つ該当設備は全部表示（収容局・ケーブル・検索は関係なし）
     _mhData.forEach((row) => {
       const lat = parseFloat(row["緯度"]);
       const lng = parseFloat(row["経度"]);
@@ -367,15 +390,13 @@ function updateMap() {
       const mhName = (row["備考"] || "").trim();
       if (!mhName) return;
 
-      // ボンベ設置フラグのある設備のみ
       if (!_cylinderSet.has(mhName)) return;
 
       const popupHtml = buildPopupHtml(row, lat, lng, mhName);
 
-      // ボンベは赤固定（故障色より優先）
       const marker = L.marker([lat, lng], {
         icon: L.icon({
-          iconUrl: iconUrl(false, true),
+          iconUrl: iconUrl(false, true), // 赤固定
           iconSize: [32, 32],
           iconAnchor: [16, 32],
           popupAnchor: [0, -32],
@@ -424,7 +445,6 @@ function updateMap() {
     const mhName = (row["備考"] || "").trim();
     const popupHtml = buildPopupHtml(row, lat, lng, mhName);
 
-    // mhName が空のときは Firestore の参照をスキップして青アイコン固定
     if (!mhName) {
       const marker = L.marker([lat, lng], {
         icon: L.icon({
@@ -446,7 +466,7 @@ function updateMap() {
       if (doc.exists) {
         const data = doc.data() || {};
         hasFailure = data.failures && Object.keys(data.failures).length > 0;
-        hasCylinder = data.cylinderInstalled === true; // 追加：ボンベ設置
+        hasCylinder = data.cylinderInstalled === true;
       }
 
       const marker = L.marker([lat, lng], {
@@ -479,7 +499,7 @@ function updateMap() {
 }
 
 // =========================
-// 追加：ボンベ一覧を描画（CSV順＝既存の「並び」を崩さない）
+// 追加：ボンベ一覧を描画（クリックしてもピンはそのまま）
 // =========================
 function renderCylinderList() {
   const listEl = getEl("cylinderList");
@@ -517,9 +537,9 @@ function renderCylinderList() {
     btn.type = "button";
     btn.textContent = `${mhName}（${station} / ${cable}）`;
 
+    // ★クリックしても「ボンベ全件表示」は維持（updateMap等は呼ばない）
     btn.onclick = () => {
       _map.setView([lat, lng], Math.max(_map.getZoom(), 16));
-      // 既に描画されていればポップアップを開く
       const m = _markers.find(x => x.__mhName === mhName);
       if (m) m.openPopup();
     };
@@ -546,7 +566,7 @@ window.openModal = function openModal(mhName) {
   getEl("failureStatus").value = "";
   getEl("failureComment").value = "";
 
-  // 追加：ボンベラジオ初期化（デフォは「なし」）
+  // ボンベラジオ初期化（デフォは「なし」）
   getEl("cylinderYes").checked = false;
   getEl("cylinderNo").checked = true;
 
@@ -563,7 +583,6 @@ window.openModal = function openModal(mhName) {
       getEl("mhSize").value = data.size || "";
       getEl("closureType").value = data.closure || "";
 
-      // 追加：ボンベフラグ反映
       const cyl = data.cylinderInstalled === true;
       getEl("cylinderYes").checked = cyl;
       getEl("cylinderNo").checked = !cyl;
@@ -640,7 +659,7 @@ function saveMHDetail() {
   const size = getEl("mhSize").value;
   const closure = getEl("closureType").value;
 
-  // 追加：ボンベフラグ
+  // ボンベフラグ
   const cylinderInstalled = !!getEl("cylinderYes").checked;
 
   const pressure = {};
@@ -660,16 +679,17 @@ function saveMHDetail() {
 
   db.collection("mhDetails").doc(_currentMHId).set({
     size, closure, pressure, failures,
-    cylinderInstalled, // 追加
+    cylinderInstalled,
   }).then(async () => {
     alert("保存しました");
     getEl("mhModal").style.display = "none";
 
-    // 追加：ボンベSet更新（即座に赤反映 & 一覧更新）
     await fetchCylinderSet({ force: true });
+
+    // ボンベモードなら一覧更新（ピンは全件表示のまま）
     if (_cylinderMode) {
       renderCylinderList();
-      openCylinderPanel(); // パネル開いたままにする（サイズ補正含む）
+      updateCylinderToggleLabel();
     }
 
     updateMap(); // 色分け再描画
