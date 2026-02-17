@@ -39,6 +39,22 @@
       border-bottom: 1px solid #e6e6e6;
     }
 
+    /* ボンベ一覧パネル */
+    #cylinderPanel {
+      display: none;
+      padding: 6px 10px;
+      border-bottom: 1px solid #e6e6e6;
+      background: #fff;
+    }
+    #cylinderList button {
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+    }
+    #cylinderList button:hover { background: #f6f6f6; }
+
     /* Modal */
     .modal {
       position: fixed; z-index: 1000; inset: 0;
@@ -51,6 +67,8 @@
       border-radius: 10px; width: 90%; max-width: 640px; color: #222;
     }
     .close { float: right; font-size: 1.5em; cursor: pointer; }
+
+    .inline-radio { display: inline-flex; gap: 12px; align-items: center; margin-left: 6px; }
   </style>
 
   <!-- Firebase SDK（v9+ 互換API） -->
@@ -74,11 +92,11 @@
         </select>
       </label>
 
-      <label>名称（備考）：
+      <label>設備名：
         <input
           id="nameFilter"
           type="search"
-          placeholder="例：下大川前 / 局 / 電柱名（部分一致）"
+          placeholder="設備名検索（部分一致）"
           list="nameOptions"
           autocomplete="off"
           disabled
@@ -87,9 +105,20 @@
       </label>
 
       <button id="clearBtn" type="button">クリア</button>
+      <button id="cylinderBtn" type="button">ボンベ設置個所</button>
     </div>
 
     <div id="hint">収容局を選択するとピンを表示します</div>
+
+    <!-- ボンベ設置一覧 -->
+    <div id="cylinderPanel">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+        <div id="cylinderSummary" style="font-size:0.95rem; color:#333;">ボンベ設置一覧</div>
+        <button id="cylinderClose" type="button">閉じる</button>
+      </div>
+      <div id="cylinderList" style="margin-top:6px; display:flex; flex-direction:column; gap:4px;"></div>
+    </div>
+
     <div id="map"></div>
 
     <!-- モーダル -->
@@ -116,13 +145,21 @@
             <option value="SAT">SAT</option>
             <option value="その他">その他</option>
           </select>
-        </label><br />
+        </label><br /><br />
+
+        <label>ボンベ設置：
+          <span class="inline-radio">
+            <label><input type="radio" name="cylinderInstalled" id="cylinderYes" value="yes"> あり</label>
+            <label><input type="radio" name="cylinderInstalled" id="cylinderNo" value="no"> なし</label>
+          </span>
+        </label>
+        <br /><br />
 
         <label>内圧:</label>
         <div id="pressureList"></div>
         <input type="date" id="pressureDate" />
         <input type="number" id="pressureValue" step="0.01" placeholder="圧力" />
-        <button id="pressureAdd">追加</button>
+        <button id="pressureAdd" type="button">追加</button>
         <br /><br />
 
         <label>故障歴:</label>
@@ -135,10 +172,10 @@
           <option value="TOSYS提案中">TOSYS提案中</option>
         </select>
         <input type="text" id="failureComment" placeholder="コメント" />
-        <button id="failureAdd">追加</button>
+        <button id="failureAdd" type="button">追加</button>
         <br /><br />
 
-        <button id="saveBtn">保存</button>
+        <button id="saveBtn" type="button">保存</button>
       </div>
     </div>
   </div>

@@ -20,6 +20,7 @@ let _map = null;
 let _markers = [];
 let _mhData = [];
 let _currentMHId = null;
+let _showCylinderOnly = false;
 
 Object.defineProperty(window, "_leafletMap", {
   get: () => _map,
@@ -31,10 +32,10 @@ Object.defineProperty(window, "_leafletMap", {
 // =========================
 function getEl(id) { return document.getElementById(id); }
 
-function iconUrl(hasFailure) {
-  return hasFailure
-    ? "https://maps.google.com/mapfiles/ms/icons/orange-dot.png"
-    : "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
+function iconUrl({ hasFailure, hasCylinder }) {
+  if (hasCylinder) return "https://maps.google.com/mapfiles/ms/icons/red-dot.png";
+  if (hasFailure) return "https://maps.google.com/mapfiles/ms/icons/orange-dot.png";
+  return "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
 }
 
 function normalizeText(s) {
@@ -55,6 +56,13 @@ function escapeHtml(s) {
 function setHint(text) {
   const el = getEl("hint");
   if (el) el.textContent = text;
+}
+
+function ensureRadioDefault() {
+  // どちらも未選択になりがちなので、初期は「なし」を推奨
+  const yes = getEl("cylinderYes");
+  const no = getEl("cylinderNo");
+  if (yes && no && !yes.checked && !no.checked) no.checked = true;
 }
 
 // =========================
@@ -84,6 +92,25 @@ window.initApp = function initApp() {
   getEl("failureAdd").addEventListener("click", addFailure);
   getEl("saveBtn").addEventListener("click", saveMHDetail);
 
+  // ボンベ設置個所ボタン
+  getEl("cylinderBtn").addEventListener("click", async () => {
+    const station = getEl("stationFilter").value;
+    if (!station) {
+      alert("収容局を選択してください（負荷対策のため）");
+      return;
+    }
+    _showCylinderOnly = true;
+    await updateMap();
+    await renderCylinderList();
+    getEl("cylinderPanel").style.display = "block";
+  });
+
+  getEl("cylinderClose").addEventListener("click", () => {
+    getEl("cylinderPanel").style.display = "none";
+    _showCylinderOnly = false;
+    updateMap();
+  });
+
   // クリア
   getEl("clearBtn").addEventListener("click", () => {
     getEl("stationFilter").value = "";
@@ -92,6 +119,9 @@ window.initApp = function initApp() {
 
     getEl("nameFilter").value = "";
     getEl("nameFilter").disabled = true;
+
+    _showCylinderOnly = false;
+    getEl("cylinderPanel").style.display = "none";
 
     // ピンを消して初期状態へ
     clearMarkers();
@@ -110,6 +140,9 @@ window.initApp = function initApp() {
       getEl("nameFilter").value = "";
       getEl("nameFilter").disabled = true;
 
+      _showCylinderOnly = false;
+      getEl("cylinderPanel").style.display = "none";
+
       clearMarkers();
       setHint("収容局を選択するとピンを表示します");
       return;
@@ -121,19 +154,32 @@ window.initApp = function initApp() {
 
     updateCableFilter();
     updateNameOptions();
+
+    // station変えたら「ボンベのみ」は一旦解除（意図しない絞り込み回避）
+    _showCylinderOnly = false;
+    getEl("cylinderPanel").style.display = "none";
+
     updateMap();
   });
 
   getEl("cableFilter").addEventListener("change", () => {
     const station = getEl("stationFilter").value;
-    if (!station) return; // 念のため
+    if (!station) return;
     updateNameOptions();
+
+    _showCylinderOnly = false;
+    getEl("cylinderPanel").style.display = "none";
+
     updateMap();
   });
 
   getEl("nameFilter").addEventListener("input", () => {
     const station = getEl("stationFilter").value;
-    if (!station) return; // 念のため
+    if (!station) return;
+
+    _showCylinderOnly = false;
+    getEl("cylinderPanel").style.display = "none";
+
     updateMap();
   });
 
@@ -148,7 +194,7 @@ window.initApp = function initApp() {
 
       populateStationFilter();
       setHint("収容局を選択するとピンを表示します");
-      // ★ここでは updateMap() を呼ばない（初期ピン描画しない）
+      // 初期は描画しない
     },
     error: (err) => {
       console.error("CSV 読み込み失敗:", err);
@@ -172,7 +218,7 @@ function populateStationFilter() {
     `<option value="">選択してください</option>` +
     [...stationSet]
       .sort((a, b) => a.localeCompare(b, "ja"))
-      .map((s) => `<option>${s}</option>`)
+      .map((s) => `<option>${escapeHtml(s)}</option>`)
       .join("");
 }
 
@@ -191,7 +237,7 @@ function updateCableFilter() {
     `<option value="">すべて</option>` +
     [...cableSet]
       .sort((a, b) => a.localeCompare(b, "ja"))
-      .map((c) => `<option>${c}</option>`)
+      .map((c) => `<option>${escapeHtml(c)}</option>`)
       .join("");
 }
 
@@ -219,14 +265,15 @@ function updateNameOptions() {
 }
 
 // =========================
-// 地図描画（収容局が未選択なら描画しない）
+// 地図描画
 // =========================
 function clearMarkers() {
   _markers.forEach((m) => _map.removeLayer(m));
   _markers = [];
 }
 
-function updateMap() {
+// 重要：ボンベのみ表示（_showCylinderOnly）時は Firestore を見て除外するため async
+async function updateMap() {
   const selectedStation = getEl("stationFilter").value;
   if (!selectedStation) {
     clearMarkers();
@@ -238,7 +285,8 @@ function updateMap() {
   const selectedCable = getEl("cableFilter").value;
   const nameQuery = normalizeText(getEl("nameFilter")?.value);
 
-  const filtered = _mhData.filter((row) => {
+  // CSV側でまず絞る（軽い条件だけ）
+  const prelim = _mhData.filter((row) => {
     if (row["収容局"] !== selectedStation) return false;
 
     const okCable = !selectedCable || row["ケーブル名"] === selectedCable;
@@ -249,14 +297,17 @@ function updateMap() {
     return okCable && okName;
   });
 
-  setHint(`表示件数：${filtered.length}`);
+  // 同じmhNameは1回だけ取得（高速化）
+  const cache = new Map();
+  let shownCount = 0;
 
-  filtered.forEach((row) => {
+  for (const row of prelim) {
     const lat = parseFloat(row["緯度"]);
     const lng = parseFloat(row["経度"]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
     const mhName = (row["備考"] || "").trim();
+
     const popupHtml = `
       <div style="line-height:1.4">
         <div style="font-weight:bold; font-size:1.1em;">${escapeHtml(mhName || "(名称未設定)")}</div>
@@ -274,53 +325,58 @@ function updateMap() {
       </div>
     `;
 
-    // mhName が空のときは Firestore の参照をスキップして青アイコン固定
+    // 名称なしは Firestore が使えない（現仕様）
     if (!mhName) {
+      if (_showCylinderOnly) continue;
+
       const marker = L.marker([lat, lng], {
         icon: L.icon({
-          iconUrl: iconUrl(false),
+          iconUrl: iconUrl({ hasFailure: false, hasCylinder: false }),
           iconSize: [32, 32],
           iconAnchor: [16, 32],
           popupAnchor: [0, -32],
         }),
       }).addTo(_map).bindPopup(popupHtml);
 
+      marker.__mhName = "";
       _markers.push(marker);
-      return;
+      shownCount++;
+      continue;
     }
 
-    db.collection("mhDetails").doc(mhName).get().then((doc) => {
-      let hasFailure = false;
-      if (doc.exists) {
-        const data = doc.data() || {};
-        hasFailure = data.failures && Object.keys(data.failures).length > 0;
+    // Firestore取得（キャッシュ）
+    let detail = cache.get(mhName);
+    if (!detail) {
+      try {
+        const doc = await db.collection("mhDetails").doc(mhName).get();
+        detail = doc.exists ? (doc.data() || {}) : {};
+      } catch (e) {
+        detail = {};
       }
+      cache.set(mhName, detail);
+    }
 
-      const marker = L.marker([lat, lng], {
-        icon: L.icon({
-          iconUrl: iconUrl(hasFailure),
-          iconSize: [32, 32],
-          iconAnchor: [16, 32],
-          popupAnchor: [0, -32],
-        }),
-      }).addTo(_map).bindPopup(popupHtml);
+    const hasFailure = detail.failures && Object.keys(detail.failures).length > 0;
+    const hasCylinder = detail.cylinderInstalled === true;
 
-      _markers.push(marker);
-    }).catch((err) => {
-      console.warn("Firestore 取得失敗:", err);
+    // ボンベのみ表示中は、フラグなしを除外
+    if (_showCylinderOnly && !hasCylinder) continue;
 
-      const marker = L.marker([lat, lng], {
-        icon: L.icon({
-          iconUrl: iconUrl(false),
-          iconSize: [32, 32],
-          iconAnchor: [16, 32],
-          popupAnchor: [0, -32],
-        }),
-      }).addTo(_map).bindPopup(popupHtml);
+    const marker = L.marker([lat, lng], {
+      icon: L.icon({
+        iconUrl: iconUrl({ hasFailure, hasCylinder }),
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+        popupAnchor: [0, -32],
+      }),
+    }).addTo(_map).bindPopup(popupHtml);
 
-      _markers.push(marker);
-    });
-  });
+    marker.__mhName = mhName;
+    _markers.push(marker);
+    shownCount++;
+  }
+
+  setHint(`表示件数：${shownCount}${_showCylinderOnly ? "（ボンベ設置のみ）" : ""}`);
 }
 
 // =========================
@@ -341,6 +397,10 @@ window.openModal = function openModal(mhName) {
   getEl("failureStatus").value = "";
   getEl("failureComment").value = "";
 
+  // ボンベラジオ初期化（デフォは「なし」）
+  getEl("cylinderYes").checked = false;
+  getEl("cylinderNo").checked = true;
+
   const modal = getEl("mhModal");
 
   if (!mhName) {
@@ -354,6 +414,11 @@ window.openModal = function openModal(mhName) {
       getEl("mhSize").value = data.size || "";
       getEl("closureType").value = data.closure || "";
 
+      // ボンベ
+      const cyl = data.cylinderInstalled === true;
+      getEl("cylinderYes").checked = cyl;
+      getEl("cylinderNo").checked = !cyl;
+
       if (data.pressure) {
         Object.keys(data.pressure).sort().forEach(date => {
           appendPressureItem(date, data.pressure[date]);
@@ -366,9 +431,11 @@ window.openModal = function openModal(mhName) {
         });
       }
     }
+    ensureRadioDefault();
     modal.style.display = "block";
   }).catch(err => {
     console.error("詳細取得失敗:", err);
+    ensureRadioDefault();
     modal.style.display = "block";
   });
 };
@@ -386,7 +453,7 @@ function appendPressureItem(date, val) {
   div.dataset.value = val;
   div.innerHTML = `
     ${escapeHtml(date)}: ${escapeHtml(val)}
-    <button class="delete-pressure" data-date="${escapeForAttr(date)}">削除</button>
+    <button class="delete-pressure" data-date="${escapeForAttr(date)}" type="button">削除</button>
   `;
   div.querySelector(".delete-pressure").onclick = () => {
     if (confirm("この項目を削除しますか？")) div.remove();
@@ -409,7 +476,7 @@ function appendFailureItem(date, status, comment) {
   div.dataset.comment = comment;
   div.innerHTML = `
     ${escapeHtml(date)}: [${escapeHtml(status)}] ${comment ? escapeHtml(comment) : ""}
-    <button class="delete-failure" data-date="${escapeForAttr(date)}">削除</button>
+    <button class="delete-failure" data-date="${escapeForAttr(date)}" type="button">削除</button>
   `;
   div.querySelector(".delete-failure").onclick = () => {
     if (confirm("この項目を削除しますか？")) div.remove();
@@ -422,8 +489,12 @@ function saveMHDetail() {
     alert("名称未設定のため保存できません。CSVの『備考』に名称を設定してください。");
     return;
   }
+
   const size = getEl("mhSize").value;
   const closure = getEl("closureType").value;
+
+  // ボンベフラグ
+  const cylinderInstalled = !!getEl("cylinderYes").checked;
 
   const pressure = {};
   [...getEl("pressureList").children].forEach(item => {
@@ -441,13 +512,93 @@ function saveMHDetail() {
   });
 
   db.collection("mhDetails").doc(_currentMHId).set({
-    size, closure, pressure, failures
-  }).then(() => {
+    size, closure, pressure, failures, cylinderInstalled
+  }).then(async () => {
     alert("保存しました");
     getEl("mhModal").style.display = "none";
-    updateMap(); // 色分け再描画
+
+    // 色分け再描画
+    await updateMap();
+
+    // ボンベ一覧表示中なら一覧も更新
+    if (_showCylinderOnly && getEl("cylinderPanel").style.display !== "none") {
+      await renderCylinderList();
+    }
   }).catch(err => {
     console.error("保存失敗:", err);
     alert("保存に失敗しました");
   });
+}
+
+// =========================
+// ボンベ設置一覧（ソート→クリックで移動）
+// =========================
+async function renderCylinderList() {
+  const station = getEl("stationFilter").value;
+  const cable = getEl("cableFilter").value;
+
+  const listEl = getEl("cylinderList");
+  const sumEl = getEl("cylinderSummary");
+  listEl.innerHTML = "";
+
+  // station必須（ボタン側でもチェック済み）
+  const rows = _mhData.filter(r =>
+    r["収容局"] === station && (!cable || r["ケーブル名"] === cable)
+  );
+
+  const cache = new Map();
+  const flagged = [];
+
+  for (const r of rows) {
+    const mhName = (r["備考"] || "").trim();
+    if (!mhName) continue;
+
+    let detail = cache.get(mhName);
+    if (!detail) {
+      try {
+        const doc = await db.collection("mhDetails").doc(mhName).get();
+        detail = doc.exists ? (doc.data() || {}) : {};
+      } catch (e) {
+        detail = {};
+      }
+      cache.set(mhName, detail);
+    }
+
+    if (detail.cylinderInstalled === true) {
+      const lat = parseFloat(r["緯度"]);
+      const lng = parseFloat(r["経度"]);
+      flagged.push({
+        name: mhName,
+        lat,
+        lng,
+        station: r["収容局"] || "",
+        cable: r["ケーブル名"] || "",
+      });
+    }
+  }
+
+  // 名称でソート（必要ならここを「ケーブル名→名称」などにも変更可）
+  flagged.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+
+  sumEl.textContent = `ボンベ設置一覧：${flagged.length}件（クリックで移動）`;
+
+  if (flagged.length === 0) {
+    listEl.innerHTML = `<div style="color:#666; font-size:0.95rem;">該当なし</div>`;
+    return;
+  }
+
+  for (const item of flagged) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = `${item.name}（${item.cable}）`;
+    btn.onclick = () => {
+      if (Number.isFinite(item.lat) && Number.isFinite(item.lng)) {
+        _map.setView([item.lat, item.lng], Math.max(_map.getZoom(), 16));
+      }
+      // ボンベのみ表示中は、該当マーカーが存在する想定
+      const m = _markers.find(x => x.__mhName === item.name);
+      if (m) m.openPopup();
+    };
+    listEl.appendChild(btn);
+  }
 }
