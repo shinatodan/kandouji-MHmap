@@ -411,7 +411,7 @@ function updateMap() {
     clearMarkers();
 
     const targets = getUniqueCylinderTargetsFromCsv();
-    setHint(`表示件数：${targets.length}（ボンベ設置のみ）`);
+    setHint(`表示件数：${targets.length}`);
 
     targets.forEach(({ row, mhName, lat, lng, key }) => {
       const popupHtml = buildPopupHtml(row, lat, lng, mhName);
@@ -562,7 +562,7 @@ window.openModal = function openModal(mhName, newKey) {
   const meta = getEl("modalMeta");
   if (meta) {
     const p = parseCableKey(newKey || "");
-    meta.textContent = `収容局：${p.station || "-"} ／ ケーブル：${p.cable || "-"} ／ 設備：${p.name || (mhName || "-")}`;
+    meta.textContent = `${p.station || "-"} ／ ${p.cable || "-"} ／ ${p.name || (mhName || "-")}`;
   }
 
   // 初期化
