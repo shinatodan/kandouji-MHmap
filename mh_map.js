@@ -80,7 +80,7 @@ function parseCableKey(key) {
 }
 
 // =========================
-// ★ピン色の優先順位（重要）
+// ★ピン色の優先順位
 // オレンジ（故障） ＞ 赤（ボンベ） ＞ 青
 // =========================
 function iconUrl(hasFailure, hasCylinder) {
@@ -189,15 +189,24 @@ async function fetchCylinderSet({ force = false } = {}) {
 }
 
 // =========================
-// ポップアップHTML
+// ★ポップアップHTML（PDFリンク復活）
 // =========================
 function buildPopupHtml(row, lat, lng, mhName) {
   const newKey = makeCableKey(row);
+
+  const station = row["収容局"] || "";
+  const cable = row["ケーブル名"] || "";
+  const pdf = row["pdfファイル名"];
+
+  const cableHtml = pdf
+    ? `<a href="MHpdf/${encodeURIComponent(pdf)}" target="_blank">${escapeHtml(cable || "詳細PDF")}</a>`
+    : `${escapeHtml(cable || "")}`;
+
   return `
     <div style="line-height:1.4">
       <div style="font-weight:bold; font-size:1.1em;">${escapeHtml(mhName || "(名称未設定)")}</div>
-      <div style="font-size:1.0em;">${escapeHtml(row["収容局"] || "")}</div>
-      <div>${escapeHtml(row["ケーブル名"] || "")}</div>
+      <div style="font-size:1.0em;">${escapeHtml(station)}</div>
+      <div>${cableHtml}</div>
       <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank">地図アプリで開く</a><br>
       <a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}" target="_blank">ストリートビューで開く</a><br><br>
       <button type="button" onclick="openModal('${escapeForAttr(mhName)}','${escapeForAttr(newKey)}')">詳細</button>
@@ -226,11 +235,12 @@ window.initApp = function initApp() {
     maxZoom: 20,
   }).addTo(_map);
 
-  // ボタン類
+  // モーダル操作
   getEl("pressureAdd").addEventListener("click", addPressure);
   getEl("failureAdd").addEventListener("click", addFailure);
   getEl("saveBtn").addEventListener("click", saveMHDetail);
 
+  // ボンベ設置個所
   getEl("cylinderBtn").addEventListener("click", async () => {
     _cylinderMode = true;
     await fetchCylinderSet({ force: true });
@@ -239,6 +249,7 @@ window.initApp = function initApp() {
     openCylinderPanel({ minimized: true });
   });
 
+  // 「閉じる/開く」＝最小化トグル
   getEl("cylinderClose").addEventListener("click", () => {
     const panel = getEl("cylinderPanel");
     const isVisible = panel && panel.style.display === "block";
@@ -246,6 +257,7 @@ window.initApp = function initApp() {
     else toggleCylinderMinimize();
   });
 
+  // クリア
   getEl("clearBtn").addEventListener("click", () => {
     getEl("stationFilter").value = "";
     getEl("cableFilter").innerHTML = `<option value="">収容局を選択</option>`;
@@ -406,7 +418,7 @@ function getUniqueCylinderTargetsFromCsv() {
 }
 
 function updateMap() {
-  // ===== ボンベモード：ボンベのある設備だけ表示（ただし故障があればオレンジ優先）=====
+  // ===== ボンベモード（ボンベのみ表示、故障はオレンジ優先）=====
   if (_cylinderMode) {
     clearMarkers();
 
@@ -416,14 +428,13 @@ function updateMap() {
     targets.forEach(({ row, mhName, lat, lng, key }) => {
       const popupHtml = buildPopupHtml(row, lat, lng, mhName);
 
-      // ★ボンベモードでも故障色を判定するためFirestoreを見る
       getDetail(key).then((data) => {
         const hasFailure = data.failures && Object.keys(data.failures).length > 0;
         const hasCylinder = true;
 
         const marker = L.marker([lat, lng], {
           icon: L.icon({
-            iconUrl: iconUrl(hasFailure, hasCylinder), // ★オレンジ優先
+            iconUrl: iconUrl(hasFailure, hasCylinder),
             iconSize: [32, 32],
             iconAnchor: [16, 32],
             popupAnchor: [0, -32],
@@ -433,7 +444,6 @@ function updateMap() {
         marker.__cableKey = key;
         _markers.push(marker);
       }).catch(() => {
-        // Firestore取れない場合は赤
         const marker = L.marker([lat, lng], {
           icon: L.icon({
             iconUrl: iconUrl(false, true),
@@ -481,17 +491,15 @@ function updateMap() {
 
     const mhName = (row["備考"] || "").trim();
     const popupHtml = buildPopupHtml(row, lat, lng, mhName);
-
     const key = makeCableKey(row);
 
-    // Firestoreが死んでもピンは出す
     getDetail(key).then((data) => {
       const hasFailure = data.failures && Object.keys(data.failures).length > 0;
       const hasCylinder = data.cylinderInstalled === true;
 
       const marker = L.marker([lat, lng], {
         icon: L.icon({
-          iconUrl: iconUrl(hasFailure, hasCylinder), // ★オレンジ優先
+          iconUrl: iconUrl(hasFailure, hasCylinder),
           iconSize: [32, 32],
           iconAnchor: [16, 32],
           popupAnchor: [0, -32],
@@ -527,7 +535,7 @@ function renderCylinderList() {
   listEl.innerHTML = "";
   const targets = getUniqueCylinderTargetsFromCsv();
 
-  sumEl.textContent = `ボンベ設置一覧：${targets.length}件（クリックで移動）`;
+  sumEl.textContent = `${targets.length}件（クリックで移動）`;
 
   if (targets.length === 0) {
     listEl.innerHTML = `<div style="color:#666; font-size:0.95rem;">該当なし</div>`;
