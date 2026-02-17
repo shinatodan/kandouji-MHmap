@@ -1,182 +1,236 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>MH位置マップ</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <title>MHマップ表示</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-<style>
-body {
-  margin: 0;
-  font-family: sans-serif;
-}
+  <style>
+    :root { --gap: 6px; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    h1 { text-align: center; padding: 6px; margin: 0; font-size: 1.2em; }
 
-h1 {
-  text-align: center;
-  padding: 5px;
-  margin: 5px 0;
-  font-size: 1.2em;
-}
+    .filters {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      padding: 6px; gap: var(--gap);
+    }
+    .filters label { display: flex; gap: 6px; align-items: center; }
 
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  padding: 5px;
-  gap: 10px;
-}
+    #nameFilter {
+      width: min(340px, 80vw);
+      padding: 4px 6px;
+      font-size: 1rem;
+    }
 
-#map {
-  height: 90vh;
-  width: 100%;
-}
+    #map { height: 86vh; width: 100%; }
 
-/* ===== ボンベ一覧パネル ===== */
+    /* ガイド表示 */
+    #hint {
+      text-align: center;
+      padding: 6px 10px;
+      font-size: 0.95rem;
+      color: #333;
+      background: #f6f6f6;
+      border-top: 1px solid #e6e6e6;
+      border-bottom: 1px solid #e6e6e6;
+    }
 
-#cylinderPanel {
-  display: none;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: white;
-  border-top: 1px solid #ccc;
-  z-index: 2000;
-  max-height: 38vh;
-  overflow: auto;
-  box-shadow: 0 -4px 10px rgba(0,0,0,0.2);
-}
+    /* ===== ボンベ一覧パネル（追加）===== */
+    #cylinderPanel {
+      display: none;
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      z-index: 1200;
+      background: #fff;
+      border-top: 1px solid #e6e6e6;
+      box-shadow: 0 -6px 16px rgba(0,0,0,0.15);
+      max-height: 38vh;
+      overflow: auto;
+      padding: 8px 10px;
+    }
+    #cylinderHeader {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    #cylinderList {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #cylinderList button {
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fff;
+      cursor: pointer;
+    }
+    #cylinderList button:hover { background: #f5f5f5; }
 
-#cylinderHeader {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 10px;
-  background: #f5f5f5;
-}
+    /* パネル表示中：地図が隠れないように縮める */
+    body.cylinder-open #map { height: calc(86vh - 38vh); }
 
-#cylinderList button {
-  width: 100%;
-  padding: 8px;
-  border: none;
-  border-bottom: 1px solid #eee;
-  text-align: left;
-  background: white;
-}
+    /* 最小化（閉じるボタン＝最小化トグル） */
+    body.cylinder-min #cylinderPanel {
+      max-height: 64px;
+      overflow: hidden;
+      padding: 6px 10px;
+    }
+    body.cylinder-min #cylinderList { display: none; }
+    body.cylinder-min #map { height: calc(86vh - 64px); }
+    /* ===== 追加ここまで ===== */
 
-#cylinderList button:hover {
-  background: #eee;
-}
+    /* Modal */
+    .modal {
+      position: fixed; z-index: 1000; inset: 0;
+      height: 100%; width: 100%;
+      overflow: auto; background-color: rgba(0,0,0,0.4);
+      display: none;
+    }
+    .modal-content {
+      background-color: #fff; margin: 5% auto; padding: 20px;
+      border-radius: 10px; width: 90%; max-width: 640px; color: #222;
+    }
+    .close { float: right; font-size: 1.5em; cursor: pointer; }
+    .inline-radio { display: inline-flex; gap: 12px; align-items: center; margin-left: 6px; }
+  </style>
 
-/* 開いた時 */
-body.cylinder-open #map {
-  height: calc(90vh - 38vh);
-}
-
-/* 最小化 */
-body.cylinder-min #cylinderPanel {
-  max-height: 50px;
-}
-
-body.cylinder-min #cylinderList {
-  display: none;
-}
-
-body.cylinder-min #map {
-  height: calc(90vh - 50px);
-}
-
-.modal {
-  position: fixed;
-  z-index: 3000;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.4);
-  display: none;
-}
-
-.modal-content {
-  background: white;
-  margin: 5% auto;
-  padding: 20px;
-  width: 90%;
-  max-width: 600px;
-}
-
-</style>
-
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-
+  <!-- Firebase SDK（v9+ 互換API） -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
+
 <body>
+  <div id="mainContent">
+    <h1>MH位置マップ</h1>
 
-<h1>MH位置マップ</h1>
+    <div class="filters">
+      <label>収容局：
+        <select id="stationFilter">
+          <option value="">選択してください</option>
+        </select>
+      </label>
 
-<div class="filters">
+      <label>ケーブル名：
+        <select id="cableFilter" disabled>
+          <option value="">収容局を選択</option>
+        </select>
+      </label>
 
-<select id="stationFilter">
-<option value="">収容局</option>
-</select>
+      <label>設備名：
+        <input
+          id="nameFilter"
+          type="search"
+          placeholder="設備名検索（部分一致）"
+          list="nameOptions"
+          autocomplete="off"
+          disabled
+        />
+        <datalist id="nameOptions"></datalist>
+      </label>
 
-<select id="cableFilter">
-<option value="">ケーブル</option>
-</select>
+      <button id="clearBtn" type="button">クリア</button>
 
-<input id="nameFilter" placeholder="設備名">
+      <!-- 追加：ボンベ設置個所 -->
+      <button id="cylinderBtn" type="button">ボンベ設置個所</button>
+    </div>
 
-<button id="cylinderBtn">ボンベ設置個所</button>
+    <div id="hint">収容局を選択するとピンを表示します</div>
+    <div id="map"></div>
 
-<button id="clearBtn">クリア</button>
+    <!-- 追加：ボンベ一覧パネル（下固定） -->
+    <div id="cylinderPanel">
+      <div id="cylinderHeader">
+        <div id="cylinderSummary" style="font-size:0.95rem; color:#333;">ボンベ設置一覧</div>
+        <!-- 「閉じる」＝最小化トグル（モード解除しない） -->
+        <button id="cylinderClose" type="button">閉じる</button>
+      </div>
+      <div id="cylinderList"></div>
+    </div>
 
-</div>
+    <!-- モーダル -->
+    <div id="mhModal" class="modal">
+      <div class="modal-content">
+        <span id="closeModal" class="close" title="閉じる">&times;</span>
+        <h2 id="modalTitle">MH詳細</h2>
 
-<div id="map"></div>
+        <label>MHサイズ：
+          <select id="mhSize">
+            <option value="">未選択</option>
+            <option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option>
+            <option value="5">5</option><option value="6">6</option>
+            <option value="7">7</option><option value="8">8</option>
+          </select>
+        </label><br />
 
-<!-- ボンベ一覧 -->
-<div id="cylinderPanel">
+        <label>クロージャ種類：
+          <select id="closureType">
+            <option value="">未選択</option>
+            <option value="鉛管">鉛管</option>
+            <option value="4SC">4SC</option>
+            <option value="SAT">SAT</option>
+            <option value="その他">その他</option>
+          </select>
+        </label><br /><br />
 
-<div id="cylinderHeader">
+        <!-- 追加：ボンベ設置フラグ -->
+        <label>ボンベ設置：
+          <span class="inline-radio">
+            <label><input type="radio" name="cylinderInstalled" id="cylinderYes" value="yes">あり</label>
+            <label><input type="radio" name="cylinderInstalled" id="cylinderNo" value="no">なし</label>
+          </span>
+        </label>
+        <br /><br />
 
-<div id="cylinderSummary">ボンベ設置一覧</div>
+        <label>内圧:</label>
+        <div id="pressureList"></div>
+        <input type="date" id="pressureDate" />
+        <input type="number" id="pressureValue" step="0.01" placeholder="圧力" />
+        <button id="pressureAdd" type="button">追加</button>
+        <br /><br />
 
-<div>
-<button id="cylinderMin">最小化</button>
-<button id="cylinderClose">閉じる</button>
-</div>
+        <label>故障歴:</label>
+        <div id="failureList"></div>
+        <input type="date" id="failureDate" />
+        <select id="failureStatus">
+          <option value="">未選択</option>
+          <option value="故障中">故障中</option>
+          <option value="修理済み">修理済み</option>
+          <option value="TOSYS提案中">TOSYS提案中</option>
+        </select>
+        <input type="text" id="failureComment" placeholder="コメント" />
+        <button id="failureAdd" type="button">追加</button>
+        <br /><br />
 
-</div>
+        <button id="saveBtn" type="button">保存</button>
+      </div>
+    </div>
+  </div>
 
-<div id="cylinderList"></div>
+  <!-- ライブラリ（Leaflet / PapaParse） -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-</div>
+  <!-- アプリ本体 -->
+  <script src="./mh_map.js"></script>
 
-<!-- modal -->
-<div id="mhModal" class="modal">
-<div class="modal-content">
-
-<h3 id="modalTitle"></h3>
-
-<label>
-<input type="radio" id="cylinderYes" name="cyl">あり
-</label>
-
-<label>
-<input type="radio" id="cylinderNo" name="cyl">なし
-</label>
-
-<br><br>
-
-<button id="saveBtn">保存</button>
-
-</div>
-</div>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
-<script src="mh_map.js"></script>
-
+  <!-- 起動 -->
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      if (typeof window.initApp === "function") {
+        window.initApp();
+      }
+    });
+  </script>
 </body>
 </html>
