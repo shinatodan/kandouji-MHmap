@@ -570,7 +570,7 @@ window.openModal = function openModal(mhName, newKey) {
   const meta = getEl("modalMeta");
   if (meta) {
     const p = parseCableKey(newKey || "");
-    meta.textContent = `${p.station || "-"} ／ ${p.cable || "-"} ／ ${p.name || (mhName || "-")}`;
+    meta.textContent = `${p.station || "-"} ／ ${p.cable || "-"}`;
   }
 
   // 初期化
